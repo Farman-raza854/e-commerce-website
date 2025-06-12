@@ -15,34 +15,35 @@ import { urlFor } from "@/sanity/lib/image";
 import Loader from "@/components/home-components/loader";
 import { Product, Review } from "../../../types/types"; 
 
-const transformToProduct = (sanityProduct: Product): Product | null => {
+const transformToProduct = (sanityProduct: any): Product | null => {
   if (!sanityProduct) return null;
 
   return {
     _id: sanityProduct._id,
     _type: sanityProduct._type,
-    name: sanityProduct.name,
+    name: sanityProduct.name || "",
     slug: sanityProduct.slug,
-    inStock: sanityProduct.inStock,
+    inStock: sanityProduct.inStock || false,
     image: sanityProduct.image,
-    description: sanityProduct.description,
-    price: sanityProduct.price,
+    description: sanityProduct.description || "",
+    price: sanityProduct.price || 0,
     discountPrice: sanityProduct.discountPrice,
-    colors: sanityProduct.colors,
-    department: sanityProduct.department,
-    rating: sanityProduct.rating,
-    stock: sanityProduct.stock,
+    colors: sanityProduct.colors || [],
+    department: sanityProduct.department || "",
+    rating: sanityProduct.rating || 0,
+    stock: sanityProduct.stock || 0,
     reviews: Array.isArray(sanityProduct.reviews) ? sanityProduct.reviews : [],
   };
 };
 
 const ProductPage = () => {
   const { id } = useParams();
-  const { addToCart, addToWishlist } = useCart();
+  const { addToCart, addToWishlist, isInWishlist } = useCart();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentImage, setCurrentImage] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [review, setReview] = useState<Review>({
     name: "",
     rating: 0,
@@ -54,7 +55,23 @@ const ProductPage = () => {
   useEffect(() => {
     async function fetchProduct() {
       try {
-        const query = `*[_type == "productList" && slug.current == $id][0]`;
+        setLoading(true);
+        const query = `*[_type == "productList" && slug.current == $id][0]{
+          _id,
+          _type,
+          name,
+          slug,
+          inStock,
+          image,
+          description,
+          price,
+          discountPrice,
+          colors,
+          department,
+          rating,
+          stock,
+          reviews
+        }`;
         const sanityProduct = await client.fetch(query, { id });
 
         if (!sanityProduct) {
@@ -78,7 +95,9 @@ const ProductPage = () => {
       }
     }
 
-    fetchProduct();
+    if (id) {
+      fetchProduct();
+    }
   }, [id]);
 
   // Handle review input changes
@@ -96,10 +115,12 @@ const ProductPage = () => {
 
   // Submit review to the API route
   const handleSubmitReview = async () => {
-    if (!product || !review.name || !review.comment || review.rating === 0) {
+    if (!product || !review.name.trim() || !review.comment.trim() || review.rating === 0) {
       toast.error("Please fill out all fields and provide a rating.");
       return;
     }
+
+    setSubmittingReview(true);
 
     try {
       const response = await fetch("/api/review", {
@@ -109,27 +130,50 @@ const ProductPage = () => {
         },
         body: JSON.stringify({
           productId: product._id,
-          review,
+          review: {
+            name: review.name.trim(),
+            rating: review.rating,
+            comment: review.comment.trim(),
+          },
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error("Failed to submit review.");
+        throw new Error(data.message || "Failed to submit review.");
       }
 
-      // Fetch the updated product data
-      const updatedProduct = await client.fetch<Product>(
-        `*[_type == "productList" && _id == $id][0]`,
-        { id: product._id }
-      );
+      // Refresh product data to show new review
+      const query = `*[_type == "productList" && _id == $productId][0]{
+        _id,
+        _type,
+        name,
+        slug,
+        inStock,
+        image,
+        description,
+        price,
+        discountPrice,
+        colors,
+        department,
+        rating,
+        stock,
+        reviews
+      }`;
+      const updatedProduct = await client.fetch(query, { productId: product._id });
 
-      setProduct(transformToProduct(updatedProduct));
+      if (updatedProduct) {
+        setProduct(transformToProduct(updatedProduct));
+      }
 
       toast.success("Review submitted successfully!");
       setReview({ name: "", rating: 0, comment: "", date: "" });
     } catch (error) {
       console.error("Error submitting review:", error);
-      toast.error("Failed to submit review.");
+      toast.error(error instanceof Error ? error.message : "Failed to submit review.");
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -140,7 +184,7 @@ const ProductPage = () => {
       return;
     }
 
-    if (!product.inStock) {
+    if (!product.inStock || product.stock <= 0) {
       toast.error(
         "This product is out of stock and cannot be added to the cart.",
         {
@@ -159,7 +203,7 @@ const ProductPage = () => {
       quantity: 1,
       imageUrl: urlFor(product.image).url(),
       inStock: product.inStock,
-      stock: product.stock || 0,
+      stock: product.stock,
     };
 
     addToCart(item);
@@ -177,14 +221,11 @@ const ProductPage = () => {
       return;
     }
 
-    if (product.inStock) {
-      toast.error(
-        "This product is in stock and cannot be added to the wishlist.",
-        {
-          position: "bottom-right",
-          autoClose: 3000,
-        }
-      );
+    if (isInWishlist(product._id)) {
+      toast.info("This product is already in your wishlist!", {
+        position: "bottom-right",
+        autoClose: 3000,
+      });
       return;
     }
 
@@ -196,10 +237,9 @@ const ProductPage = () => {
       quantity: 1,
       imageUrl: urlFor(product.image).url(),
       inStock: product.inStock,
-      stock: product.stock || 0, // Provide a default value if stock is undefined
+      stock: product.stock,
     };
 
-    console.log("Adding to Wishlist:", item);
     addToWishlist(item);
     toast.success(`${product.name} added to wishlist!`, {
       position: "bottom-right",
@@ -212,17 +252,32 @@ const ProductPage = () => {
   }
 
   if (error) {
-    return <div>{error}</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Error</h1>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
   }
 
   if (!product) {
-    return <div>Product not found</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-600 mb-4">Product not found</h1>
+          <p className="text-gray-500">The product you're looking for doesn't exist.</p>
+        </div>
+      </div>
+    );
   }
 
   // Calculate average rating
   const averageRating =
-    (product.reviews?.reduce((sum, review) => sum + review.rating, 0) || 0) /
-    (product.reviews?.length || 1); // Avoid division by zero
+    product.reviews && product.reviews.length > 0
+      ? product.reviews.reduce((sum, review) => sum + review.rating, 0) / product.reviews.length
+      : 0;
 
   return (
     <div className="bg-[#FAFAFA] min-h-screen">
@@ -244,9 +299,8 @@ const ProductPage = () => {
             <Image
               src={currentImage}
               alt={product.name}
-              layout="fill"
-              objectFit="cover"
-              className="rounded-lg"
+              fill
+              className="object-cover rounded-lg"
             />
           </div>
         </div>
@@ -260,7 +314,7 @@ const ProductPage = () => {
           <div className="flex justify-center sm:justify-start items-center mt-4">
             <div className="flex text-[#F3CD03] gap-2">
               {[...Array(5)].map((_, index) =>
-                index < averageRating ? (
+                index < Math.round(averageRating) ? (
                   <FaStar key={index} size={24} />
                 ) : (
                   <FaRegStar key={index} size={24} />
@@ -286,10 +340,10 @@ const ProductPage = () => {
               Availability :{" "}
               <span
                 className={`font-bold text-[14px] ${
-                  product.inStock ? "text-[#23A6F0]" : "text-[#E74040]"
+                  product.inStock && product.stock > 0 ? "text-[#23A6F0]" : "text-[#E74040]"
                 }`}
               >
-                {product.inStock
+                {product.inStock && product.stock > 0
                   ? `In Stock (${product.stock} available)`
                   : "Out of Stock"}
               </span>
@@ -304,15 +358,17 @@ const ProductPage = () => {
           </div>
 
           {/* Colored Rounded Divs */}
-          <div className="flex justify-center sm:justify-start mt-8 gap-4">
-            {product.colors?.map((color, index) => (
-              <div
-                key={index}
-                className="w-10 h-10 rounded-full border-2 border-[#E8E8E8] hover:border-[#23A6F0] transition-all"
-                style={{ backgroundColor: color }}
-              ></div>
-            ))}
-          </div>
+          {product.colors && product.colors.length > 0 && (
+            <div className="flex justify-center sm:justify-start mt-8 gap-4">
+              {product.colors.map((color, index) => (
+                <div
+                  key={index}
+                  className="w-10 h-10 rounded-full border-2 border-[#E8E8E8] hover:border-[#23A6F0] transition-all"
+                  style={{ backgroundColor: color }}
+                ></div>
+              ))}
+            </div>
+          )}
 
           {/* Action Buttons with Icons */}
           <div className="flex justify-center sm:justify-start gap-4 mt-14">
@@ -321,13 +377,15 @@ const ProductPage = () => {
             </button>
             <div className="relative group">
               <button
-                className="w-12 h-12 bg-white hover:bg-[#F1F1F1] text-[#252B42] border border-[#E8E8E8] rounded-full flex items-center justify-center text-[24px] font-bold transition-all shadow-lg hover:shadow-xl"
+                className={`w-12 h-12 bg-white hover:bg-[#F1F1F1] text-[#252B42] border border-[#E8E8E8] rounded-full flex items-center justify-center text-[24px] font-bold transition-all shadow-lg hover:shadow-xl ${
+                  isInWishlist(product._id) ? "bg-red-100 text-red-500" : ""
+                }`}
                 onClick={handleAddToWishlist}
               >
                 <FiHeart />
               </button>
               <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-[#23A6F0] text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                Add to Wishlist
+                {isInWishlist(product._id) ? "In Wishlist" : "Add to Wishlist"}
               </div>
             </div>
             <div className="relative group">
@@ -358,15 +416,17 @@ const ProductPage = () => {
                 placeholder="Your Name"
                 value={review.name}
                 onChange={handleReviewChange}
-                className="p-2 border border-[#E8E8E8] rounded-lg"
+                className="p-2 border border-[#E8E8E8] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                disabled={submittingReview}
               />
               <textarea
                 name="comment"
                 placeholder="Your Review"
                 value={review.comment}
                 onChange={handleReviewChange}
-                className="p-2 border border-[#E8E8E8] rounded-lg"
+                className="p-2 border border-[#E8E8E8] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
                 rows={4}
+                disabled={submittingReview}
               />
               <div className="flex gap-2">
                 {[1, 2, 3, 4, 5].map((star) => (
@@ -376,6 +436,7 @@ const ProductPage = () => {
                     className={`text-2xl ${
                       star <= review.rating ? "text-[#F3CD03]" : "text-[#BDBDBD]"
                     }`}
+                    disabled={submittingReview}
                   >
                     ★
                   </button>
@@ -383,9 +444,10 @@ const ProductPage = () => {
               </div>
               <button
                 onClick={handleSubmitReview}
-                className="px-6 py-2 bg-[#23A6F0] text-white rounded-lg hover:bg-[#1E90FF] transition-all"
+                disabled={submittingReview}
+                className="px-6 py-2 bg-[#23A6F0] text-white rounded-lg hover:bg-[#1E90FF] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Submit Review
+                {submittingReview ? "Submitting..." : "Submit Review"}
               </button>
             </div>
           </div>
@@ -395,9 +457,9 @@ const ProductPage = () => {
             <h3 className="text-2xl font-bold text-[#252B42] mb-4">
               Customer Reviews
             </h3>
-            {product.reviews?.length > 0 ? (
+            {product.reviews && product.reviews.length > 0 ? (
               product.reviews.map((review, index) => (
-                <div key={index} className="mb-6">
+                <div key={index} className="mb-6 p-4 bg-white rounded-lg shadow-sm">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-[#252B42]">
                       {review.name}

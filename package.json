@@ -11,6 +11,7 @@
   "dependencies": {
     "@clerk/nextjs": "^6.10.2",
     "@hookform/resolvers": "^3.10.0",
+    "@portabletext/react": "^3.1.0",
     "@radix-ui/react-dropdown-menu": "^2.1.4",
     "@radix-ui/react-slot": "^1.1.1",
     "@reduxjs/toolkit": "^2.5.1",
@@ -22,6 +23,7 @@
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "embla-carousel-react": "^8.5.2",
+    "framer-motion": "^11.15.0",
     "lucide-react": "^0.471.1",
     "next": "15.1.4",
     "next-sanity": "^9.8.35",
@@ -36,6 +38,7 @@
     "redux-persist": "^6.0.0",
     "sanity": "^3.69.0",
     "slugify": "^1.6.6",
+    "stripe": "^17.4.0",
     "styled-components": "^6.1.14",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",

@@ -10,28 +10,36 @@ import { client } from "@/sanity/lib/client";
 
 const ShopComponent = () => {
   const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("popularity"); 
 
   useEffect(() => {
     const fetchProducts = async () => {
-      const query = `*[_type == "productList"]{
-        _id,
-        name,
-        slug,
-        image,
-        description,
-        price,
-        discountPrice,
-        colors,
-        department,
-        stock,
-        rating,
-        reviews,
-        inStock,
-      }`;
+      try {
+        setLoading(true);
+        const query = `*[_type == "productList"] | order(_createdAt desc) {
+          _id,
+          name,
+          slug,
+          image,
+          description,
+          price,
+          discountPrice,
+          colors,
+          department,
+          stock,
+          rating,
+          reviews,
+          inStock,
+        }`;
 
-      const data: Product[] = await client.fetch(query);
-      setProducts(data);
+        const data: Product[] = await client.fetch(query);
+        setProducts(data);
+      } catch (error) {
+        console.error("Error fetching products:", error);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchProducts();
@@ -51,7 +59,7 @@ const ShopComponent = () => {
         return [...products].sort((a, b) => b.price - a.price);
       case "popularity":
       default:
-        return [...products].sort((a, b) => b.rating - a.rating); 
+        return [...products].sort((a, b) => (b.rating || 0) - (a.rating || 0)); 
     }
   };
 
@@ -81,10 +89,18 @@ const ShopComponent = () => {
     },
   };
 
-  if (!products || products.length === 0) {
+  if (loading) {
     return (
       <div className="text-center text-lg text-[#252B42]">
         <Loader />
+      </div>
+    );
+  }
+
+  if (!products || products.length === 0) {
+    return (
+      <div className="text-center text-lg text-[#252B42] py-20">
+        <p>No products available at the moment.</p>
       </div>
     );
   }

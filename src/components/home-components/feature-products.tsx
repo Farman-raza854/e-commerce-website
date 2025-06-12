@@ -9,29 +9,50 @@ import { motion } from "framer-motion";
 
 const FeatureProducts: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProducts = async () => {
-      const query = `*[_type == "productList"]{
-        _id,
-        name,
-        description,
-        price,
-        image,
-        discountPrice,
-        slug,
-      }`;
-      const data: Product[] = await client.fetch(query);
-      setProducts(data);
+      try {
+        setLoading(true);
+        const query = `*[_type == "productList"] | order(_createdAt desc) [0...8] {
+          _id,
+          name,
+          description,
+          price,
+          image,
+          discountPrice,
+          slug,
+          colors,
+          department,
+          rating,
+          stock,
+          inStock
+        }`;
+        const data: Product[] = await client.fetch(query);
+        setProducts(data);
+      } catch (error) {
+        console.error("Error fetching products:", error);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchProducts();
   }, []);
 
-  if (!products || products.length === 0) {
+  if (loading) {
     return (
       <div className="text-center text-lg text-[#252B42]">
         <Loader />
+      </div>
+    );
+  }
+
+  if (!products || products.length === 0) {
+    return (
+      <div className="text-center text-lg text-[#252B42] py-20">
+        <p>No products available at the moment.</p>
       </div>
     );
   }

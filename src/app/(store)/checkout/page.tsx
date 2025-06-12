@@ -2,1532 +2,326 @@
 
 import React, { useState } from "react";
 import { useCart } from "@/components/cart-components/CartContext";
-import Image from "next/image";
-import { ClerkProvider } from "@clerk/nextjs";
 import Header from "@/components/productList-components/header";
 import Footer from "@/components/team-components/footer";
-import { useForm, SubmitHandler } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { ClerkProvider } from "@clerk/nextjs";
+import Image from "next/image";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
-const checkoutSchema = z.object({
-  name: z.string().min(1, "Full name is required"),
-  email: z.string().email("Invalid email address"),
-  address: z.string().min(1, "Shipping address is required"),
-  phone: z.string().min(10, "Phone number must be at least 10 digits"),
-});
+interface CustomerInfo {
+  email: string;
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+}
 
-type CheckoutFormData = z.infer<typeof checkoutSchema>;
-
-export default function Checkout() {
-  const { cartItems } = useCart();
+const CheckoutPage = () => {
+  const { cartItems, clearCart } = useCart();
   const [isLoading, setIsLoading] = useState(false);
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
+    email: "",
+    name: "",
+    phone: "",
+    address: "",
+    city: "",
+    state: "",
+    zipCode: "",
+    country: "US",
+  });
 
   const totalPrice = cartItems.reduce(
     (total, item) => total + item.price * item.quantity,
     0
   );
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<CheckoutFormData>({
-    resolver: zodResolver(checkoutSchema),
-  });
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setCustomerInfo(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
 
-  const handleCheckout: SubmitHandler<CheckoutFormData> = async (data) => {
+  const handleCheckout = async () => {
+    if (cartItems.length === 0) {
+      toast.error("Your cart is empty!");
+      return;
+    }
+
+    // Validate required fields
+    const requiredFields = ['email', 'name', 'phone', 'address', 'city', 'state', 'zipCode'];
+    const missingFields = requiredFields.filter(field => !customerInfo[field as keyof CustomerInfo]);
+    
+    if (missingFields.length > 0) {
+      toast.error(`Please fill in all required fields: ${missingFields.join(', ')}`);
+      return;
+    }
+
     setIsLoading(true);
+
     try {
-      alert(`Your shipping has been successfully placed!\n\nName: ${data.name}\nEmail: ${data.email}\nAddress: ${data.address}\n\nThank you!`);
+      const response = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cartItems,
+          customerInfo,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.url) {
+        // Redirect to Stripe Checkout
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || "Failed to create checkout session");
+      }
     } catch (error) {
       console.error("Checkout error:", error);
+      toast.error("Failed to process checkout. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  if (cartItems.length === 0) {
+    return (
+      <div>
+        <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
+          <Header />
+        </ClerkProvider>
+        <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA]">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-[#252B42] mb-4">Your cart is empty</h1>
+            <p className="text-[#737373] mb-8">Add some items to your cart to proceed with checkout.</p>
+            <a
+              href="/productList"
+              className="bg-[#23A6F0] text-white px-6 py-3 rounded-lg hover:bg-blue-400 transition-all"
+            >
+              Continue Shopping
+            </a>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
+    <div>
       <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
         <Header />
       </ClerkProvider>
-      <div className="wrapper">
-        <div className="py-8">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-            <h1 className="text-2xl font-bold text-[#1F2937] mb-6 text-center">Checkout</h1>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Order Summary */}
-              <div className="bg-white shadow-lg rounded-lg p-6">
-                <h2 className="text-xl font-bold text-[#1F2937] mb-4">Order Summary</h2>
+      
+      <div className="min-h-screen bg-[#FAFAFA] py-10">
+        <div className="container mx-auto px-4 max-w-6xl">
+          <h1 className="text-3xl font-bold text-[#252B42] mb-8 text-center">Checkout</h1>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Customer Information Form */}
+            <div className="bg-white p-6 rounded-lg shadow-lg">
+              <h2 className="text-xl font-bold text-[#252B42] mb-6">Shipping Information</h2>
+              
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[#252B42] mb-2">
+                      Full Name *
+                    </label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={customerInfo.name}
+                      onChange={handleInputChange}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-[#252B42] mb-2">
+                      Email *
+                    </label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={customerInfo.email}
+                      onChange={handleInputChange}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-[#252B42] mb-2">
+                    Phone Number *
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={customerInfo.phone}
+                    onChange={handleInputChange}
+                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-[#252B42] mb-2">
+                    Address *
+                  </label>
+                  <input
+                    type="text"
+                    name="address"
+                    value={customerInfo.address}
+                    onChange={handleInputChange}
+                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[#252B42] mb-2">
+                      City *
+                    </label>
+                    <input
+                      type="text"
+                      name="city"
+                      value={customerInfo.city}
+                      onChange={handleInputChange}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-[#252B42] mb-2">
+                      State *
+                    </label>
+                    <input
+                      type="text"
+                      name="state"
+                      value={customerInfo.state}
+                      onChange={handleInputChange}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-[#252B42] mb-2">
+                      ZIP Code *
+                    </label>
+                    <input
+                      type="text"
+                      name="zipCode"
+                      value={customerInfo.zipCode}
+                      onChange={handleInputChange}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-[#252B42] mb-2">
+                    Country *
+                  </label>
+                  <select
+                    name="country"
+                    value={customerInfo.country}
+                    onChange={handleInputChange}
+                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#23A6F0]"
+                    required
+                  >
+                    <option value="US">United States</option>
+                    <option value="CA">Canada</option>
+                    <option value="GB">United Kingdom</option>
+                    <option value="AU">Australia</option>
+                    <option value="DE">Germany</option>
+                    <option value="FR">France</option>
+                    <option value="IT">Italy</option>
+                    <option value="ES">Spain</option>
+                    <option value="NL">Netherlands</option>
+                    <option value="BE">Belgium</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Order Summary */}
+            <div className="bg-white p-6 rounded-lg shadow-lg">
+              <h2 className="text-xl font-bold text-[#252B42] mb-6">Order Summary</h2>
+              
+              <div className="space-y-4 mb-6">
                 {cartItems.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between border-b border-gray-200 py-4">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-16 h-16 relative">
-                        <Image src={item.imageUrl} alt={item.name} layout="fill" objectFit="cover" className="rounded-lg" />
-                      </div>
-                      <span className="text-base font-medium text-[#1F2937]">{item.name}</span>
+                  <div key={item.id} className="flex items-center space-x-4 border-b pb-4">
+                    <div className="w-16 h-16 relative">
+                      <Image
+                        src={item.imageUrl}
+                        alt={item.name}
+                        fill
+                        className="object-cover rounded-md"
+                      />
                     </div>
-                    <span className="text-base font-medium text-[#1F2937]">${(item.price * item.quantity).toFixed(2)}</span>
+                    <div className="flex-1">
+                      <h3 className="font-medium text-[#252B42]">{item.name}</h3>
+                      <p className="text-sm text-[#737373]">Qty: {item.quantity}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium text-[#252B42]">
+                        ${(item.price * item.quantity).toFixed(2)}
+                      </p>
+                    </div>
                   </div>
                 ))}
-                <div className="flex justify-between mt-6">
-                  <span className="text-lg font-bold text-[#1F2937]">Total</span>
-                  <span className="text-lg font-bold text-[#1F2937]">${totalPrice.toFixed(2)}</span>
+              </div>
+
+              <div className="border-t pt-4 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-[#737373]">Subtotal</span>
+                  <span className="text-[#252B42]">${totalPrice.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#737373]">Shipping</span>
+                  <span className="text-[#252B42]">Calculated at next step</span>
+                </div>
+                <div className="flex justify-between text-lg font-bold border-t pt-2">
+                  <span className="text-[#252B42]">Total</span>
+                  <span className="text-[#252B42]">${totalPrice.toFixed(2)}</span>
                 </div>
               </div>
 
-              {/* Checkout Form */}
-              <div className="bg-white shadow-lg rounded-lg p-6">
-                <h2 className="text-xl font-bold text-[#1F2937] mb-4">Shipping Details</h2>
-                <form onSubmit={handleSubmit(handleCheckout)}>
-                  <div className="space-y-4">
-                    <div>
-                      <label htmlFor="name" className="block text-base font-medium text-[#1F2937] mb-1">Full Name</label>
-                      <input type="text" id="name" {...register("name")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-                      {errors.name && <p className="text-sm text-red-600 mt-1">{errors.name.message}</p>}
-                    </div>
-                    <div>
-                      <label htmlFor="email" className="block text-base font-medium text-[#1F2937] mb-1">Email Address</label>
-                      <input type="email" id="email" {...register("email")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-                      {errors.email && <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>}
-                    </div>
-                    <div>
-                      <label htmlFor="address" className="block text-base font-medium text-[#1F2937] mb-1">Shipping Address</label>
-                      <input type="text" id="address" {...register("address")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-                      {errors.address && <p className="text-sm text-red-600 mt-1">{errors.address.message}</p>}
-                    </div>
-                    <div>
-                      <label htmlFor="phone" className="block text-base font-medium text-[#1F2937] mb-1">Phone Number</label>
-                      <input type="tel" id="phone" {...register("phone")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-                      {errors.phone && <p className="text-sm text-red-600 mt-1">{errors.phone.message}</p>}
-                    </div>
-                  </div>
-                  <button type="submit" disabled={isLoading} className="w-full mt-6 bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:from-[#1D4ED8] hover:to-[#3B82F6] text-white font-bold py-3 px-6 rounded-lg transition-all ease-in-out transform hover:scale-105 disabled:opacity-75 disabled:cursor-not-allowed">
-                    {isLoading ? "Loading..." : "Place Order"}
-                  </button>
-                </form>
-              </div>
+              <button
+                onClick={handleCheckout}
+                disabled={isLoading}
+                className="w-full mt-6 bg-[#23A6F0] text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? "Processing..." : "Proceed to Payment"}
+              </button>
+
+              <p className="text-xs text-[#737373] mt-4 text-center">
+                You will be redirected to Stripe for secure payment processing.
+              </p>
             </div>
           </div>
         </div>
       </div>
+
       <Footer />
+      <ToastContainer position="bottom-right" />
     </div>
   );
-}
+};
 
-
-
-
-
-// "use client";
-
-// import React, { useState } from "react";
-// import { useCart } from "@/components/cart-components/CartContext";
-// import Image from "next/image";
-// import { ClerkProvider } from "@clerk/nextjs";
-// import Header from "@/components/productList-components/header";
-// import Footer from "@/components/team-components/footer";
-// import { useForm, SubmitHandler } from "react-hook-form";
-// import { zodResolver } from "@hookform/resolvers/zod";
-// import { z } from "zod";
-
-// const checkoutSchema = z.object({
-//   name: z.string().min(1, "Full name is required"),
-//   email: z.string().email("Invalid email address"),
-//   address: z.string().min(1, "Shipping address is required"),
-//   phone: z.string().min(10, "Phone number must be at least 10 digits"),
-// });
-
-// type CheckoutFormData = z.infer<typeof checkoutSchema>;
-
-// // Define a type for the ordered product items
-// type OrderItem = {
-//   id: string;
-//   name: string;
-//   price: number;
-//   quantity: number;
-//   imageUrl: string;
-// };
-
-// type OrderInfo = {
-//   name: string;
-//   email: string;
-//   address: string;
-//   items: OrderItem[];
-// };
-
-// export default function Checkout() {
-//   const { cartItems, clearCart } = useCart();
-//   const [isLoading, setIsLoading] = useState(false);
-//   const [orderSuccess, setOrderSuccess] = useState(false);
-//   const [orderInfo, setOrderInfo] = useState<OrderInfo | null>(null);
-
-//   const totalPrice = cartItems.reduce(
-//     (total, item) => total + item.price * item.quantity,
-//     0
-//   );
-
-//   const {
-//     register,
-//     handleSubmit,
-//     formState: { errors },
-//   } = useForm<CheckoutFormData>({
-//     resolver: zodResolver(checkoutSchema),
-//   });
-
-//   const handleCheckout: SubmitHandler<CheckoutFormData> = async (data) => {
-//     setIsLoading(true);
-
-//     try {
-//       // Prepare order data for Sanity
-//       const orderData = {
-//         _type: "order",
-//         customerName: data.name,
-//         customerEmail: data.email,
-//         shippingAddress: data.address,
-//         phone: data.phone,
-//         orderItems: cartItems.map((item) => ({
-//           _type: "orderItem",
-//           product: {
-//             _type: "reference",
-//             _ref: item.id,
-//           },
-//           name: item.name,
-//           price: item.price,
-//           quantity: item.quantity,
-//         })),
-//         totalPrice: totalPrice,
-//         orderStatus: "pending",
-//         createdAt: new Date().toISOString(),
-//       };
-
-//       // Save order to Sanity
-//       const response = await fetch("/api/createOrder", {
-//         method: "POST",
-//         headers: {
-//           "Content-Type": "application/json",
-//         },
-//         body: JSON.stringify(orderData),
-//       });
-
-//       if (!response.ok) {
-//         throw new Error("Failed to create order");
-//       }
-
-//       // Save the ordered items before clearing the cart
-//       const orderedItems = [...cartItems];
-//       clearCart();
-
-//       // Save order details to state and show the success screen
-//       setOrderInfo({
-//         name: data.name,
-//         email: data.email,
-//         address: data.address,
-//         items: orderedItems,
-//       });
-//       setOrderSuccess(true);
-//     } catch (error) {
-//       console.error("Checkout error:", error);
-//       alert("There was an error placing your order. Please try again.");
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-
-//   // Success screen UI when the order has been placed
-//   if (orderSuccess && orderInfo) {
-//     return (
-//       <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//         <ClerkProvider
-//           publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-//         >
-//           <Header />
-//         </ClerkProvider>
-//         <div className="wrapper">
-//           <div className="py-8">
-//             <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//               <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-8">
-//                 <div className="flex flex-col items-center">
-//                   <svg
-//                     xmlns="http://www.w3.org/2000/svg"
-//                     className="h-20 w-20 text-green-500 mb-4"
-//                     fill="none"
-//                     viewBox="0 0 24 24"
-//                     stroke="currentColor"
-//                   >
-//                     <path
-//                       strokeLinecap="round"
-//                       strokeLinejoin="round"
-//                       strokeWidth={2}
-//                       d="M5 13l4 4L19 7"
-//                     />
-//                   </svg>
-//                   <h1 className="text-3xl font-bold text-gray-800 mb-2">
-//                     Order Shipped!
-//                   </h1>
-//                   <p className="text-gray-600 mb-6 text-center">
-//                     Hi {orderInfo.name}, your products have been shipped to:
-//                   </p>
-//                 </div>
-
-//                 <div className="bg-gray-50 rounded-lg p-6 mb-6">
-//                   <p className="text-gray-700 mb-2">
-//                     <span className="font-semibold">Name:</span>{" "}
-//                     {orderInfo.name}
-//                   </p>
-//                   <p className="text-gray-700 mb-2">
-//                     <span className="font-semibold">Email:</span>{" "}
-//                     {orderInfo.email}
-//                   </p>
-//                   <p className="text-gray-700">
-//                     <span className="font-semibold">Shipping Address:</span>{" "}
-//                     {orderInfo.address}
-//                   </p>
-//                 </div>
-
-//                 <h2 className="text-2xl font-bold text-gray-800 mb-4 text-center">
-//                   Ordered Products
-//                 </h2>
-//                 <div className="space-y-4">
-//                   {orderInfo.items.map((item) => (
-//                     <div
-//                       key={item.id}
-//                       className="flex items-center justify-between border p-4 rounded-lg shadow-sm bg-white"
-//                     >
-//                       <div className="flex items-center space-x-4">
-//                         <div className="w-16 h-16 relative">
-//                           <Image
-//                             src={item.imageUrl}
-//                             alt={item.name}
-//                             layout="fill"
-//                             objectFit="cover"
-//                             className="rounded-lg"
-//                           />
-//                         </div>
-//                         <div>
-//                           <h3 className="text-lg font-medium text-gray-800">
-//                             {item.name}
-//                           </h3>
-//                           <p className="text-sm text-gray-600">
-//                             Quantity: {item.quantity}
-//                           </p>
-//                         </div>
-//                       </div>
-//                       <p className="text-lg font-bold text-gray-800">
-//                         ${(item.price * item.quantity).toFixed(2)}
-//                       </p>
-//                     </div>
-//                   ))}
-//                 </div>
-
-//                 <div className="mt-8 text-center">
-//                   <button
-//                     onClick={() => window.location.reload()}
-//                     className="px-6 py-3 bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:from-[#1D4ED8] hover:to-[#3B82F6] text-white font-bold rounded-lg transition-all ease-in-out transform hover:scale-105"
-//                   >
-//                     Continue Shopping
-//                   </button>
-//                 </div>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//         <Footer />
-//       </div>
-//     );
-//   }
-
-//   // Checkout form UI
-//   return (
-//     <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//       <ClerkProvider
-//         publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-//       >
-//         <Header />
-//       </ClerkProvider>
-//       <div className="wrapper">
-//         <div className="py-8">
-//           <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//             <h1 className="text-2xl font-bold text-[#1F2937] mb-6 text-center">
-//               Checkout
-//             </h1>
-//             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-//               {/* Order Summary */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Order Summary
-//                 </h2>
-//                 {cartItems.map((item) => (
-//                   <div
-//                     key={item.id}
-//                     className="flex items-center justify-between border-b border-gray-200 py-4"
-//                   >
-//                     <div className="flex items-center space-x-4">
-//                       <div className="w-16 h-16 relative">
-//                         <Image
-//                           src={item.imageUrl}
-//                           alt={item.name}
-//                           layout="fill"
-//                           objectFit="cover"
-//                           className="rounded-lg"
-//                         />
-//                       </div>
-//                       <span className="text-base font-medium text-[#1F2937]">
-//                         {item.name}
-//                       </span>
-//                     </div>
-//                     <span className="text-base font-medium text-[#1F2937]">
-//                       ${(item.price * item.quantity).toFixed(2)}
-//                     </span>
-//                   </div>
-//                 ))}
-//                 <div className="flex justify-between mt-6">
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     Total
-//                   </span>
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     ${totalPrice.toFixed(2)}
-//                   </span>
-//                 </div>
-//               </div>
-
-//               {/* Checkout Form */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Shipping Details
-//                 </h2>
-//                 <form onSubmit={handleSubmit(handleCheckout)}>
-//                   <div className="space-y-4">
-//                     <div>
-//                       <label
-//                         htmlFor="name"
-//                         className="block text-base font-medium text-[#1F2937] mb-1"
-//                       >
-//                         Full Name
-//                       </label>
-//                       <input
-//                         type="text"
-//                         id="name"
-//                         {...register("name")}
-//                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base"
-//                       />
-//                       {errors.name && (
-//                         <p className="text-sm text-red-600 mt-1">
-//                           {errors.name.message}
-//                         </p>
-//                       )}
-//                     </div>
-//                     <div>
-//                       <label
-//                         htmlFor="email"
-//                         className="block text-base font-medium text-[#1F2937] mb-1"
-//                       >
-//                         Email Address
-//                       </label>
-//                       <input
-//                         type="email"
-//                         id="email"
-//                         {...register("email")}
-//                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base"
-//                       />
-//                       {errors.email && (
-//                         <p className="text-sm text-red-600 mt-1">
-//                           {errors.email.message}
-//                         </p>
-//                       )}
-//                     </div>
-//                     <div>
-//                       <label
-//                         htmlFor="address"
-//                         className="block text-base font-medium text-[#1F2937] mb-1"
-//                       >
-//                         Shipping Address
-//                       </label>
-//                       <input
-//                         type="text"
-//                         id="address"
-//                         {...register("address")}
-//                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base"
-//                       />
-//                       {errors.address && (
-//                         <p className="text-sm text-red-600 mt-1">
-//                           {errors.address.message}
-//                         </p>
-//                       )}
-//                     </div>
-//                     <div>
-//                       <label
-//                         htmlFor="phone"
-//                         className="block text-base font-medium text-[#1F2937] mb-1"
-//                       >
-//                         Phone Number
-//                       </label>
-//                       <input
-//                         type="tel"
-//                         id="phone"
-//                         {...register("phone")}
-//                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base"
-//                       />
-//                       {errors.phone && (
-//                         <p className="text-sm text-red-600 mt-1">
-//                           {errors.phone.message}
-//                         </p>
-//                       )}
-//                     </div>
-//                   </div>
-//                   <button
-//                     type="submit"
-//                     disabled={isLoading}
-//                     className="w-full mt-6 bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:from-[#1D4ED8] hover:to-[#3B82F6] text-white font-bold py-3 px-6 rounded-lg transition-all ease-in-out transform hover:scale-105 disabled:opacity-75 disabled:cursor-not-allowed"
-//                   >
-//                     {isLoading ? "Loading..." : "Place Order"}
-//                   </button>
-//                 </form>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//       <Footer />
-//     </div>
-//   );
-// }
-
-
-
-
-// "use client";
-
-// import React, { useState } from "react";
-// import { useCart } from "@/components/cart-components/CartContext";
-// import Image from "next/image";
-// import { ClerkProvider } from "@clerk/nextjs";
-// import Header from "@/components/productList-components/header";
-// import Footer from "@/components/team-components/footer";
-// import { useForm, SubmitHandler } from "react-hook-form";
-// import { zodResolver } from "@hookform/resolvers/zod";
-// import { z } from "zod";
-
-// const checkoutSchema = z.object({
-//   name: z.string().min(1, "Full name is required"),
-//   email: z.string().email("Invalid email address"),
-//   address: z.string().min(1, "Shipping address is required"),
-//   phone: z.string().min(10, "Phone number must be at least 10 digits"),
-// });
-
-// type CheckoutFormData = z.infer<typeof checkoutSchema>;
-
-// export default function Checkout() {
-//   const { cartItems, clearCart } = useCart();
-//   const [isLoading, setIsLoading] = useState(false);
-//   const [orderSuccess, setOrderSuccess] = useState(false);
-//   const [customerDetails, setCustomerDetails] = useState<{
-//     name: string;
-//     email: string;
-//     address: string;
-//   } | null>(null);
-
-//   const totalPrice = cartItems.reduce(
-//     (total, item) => total + item.price * item.quantity,
-//     0
-//   );
-
-//   const {
-//     register,
-//     handleSubmit,
-//     formState: { errors },
-//   } = useForm<CheckoutFormData>({
-//     resolver: zodResolver(checkoutSchema),
-//   });
-
-//   const handleCheckout: SubmitHandler<CheckoutFormData> = async (data) => {
-//     setIsLoading(true);
-//     try {
-//       // Prepare order data for Sanity
-//       const orderData = {
-//         _type: "order",
-//         customerName: data.name,
-//         customerEmail: data.email,
-//         shippingAddress: data.address,
-//         phone: data.phone,
-//         orderItems: cartItems.map(item => ({
-//           _type: "orderItem",
-//           product: {
-//             _type: "reference",
-//             _ref: item.id
-//           },
-//           name: item.name,
-//           price: item.price,
-//           quantity: item.quantity
-//         })),
-//         totalPrice: totalPrice,
-//         orderStatus: "pending",
-//         createdAt: new Date().toISOString()
-//       };
-
-//       // Save order to Sanity
-//       const response = await fetch('/api/createOrder', {
-//         method: 'POST',
-//         headers: {
-//           'Content-Type': 'application/json',
-//         },
-//         body: JSON.stringify(orderData),
-//       });
-
-//       if (!response.ok) {
-//         throw new Error('Failed to create order');
-//       }
-
-//       // Clear cart and show success
-//       clearCart();
-//       setCustomerDetails({
-//         name: data.name,
-//         email: data.email,
-//         address: data.address
-//       });
-//       setOrderSuccess(true);
-
-//     } catch (error) {
-//       console.error("Checkout error:", error);
-//       alert("There was an error placing your order. Please try again.");
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-
-//   if (orderSuccess && customerDetails) {
-//     return (
-//       <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//         <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-//           <Header />
-//         </ClerkProvider>
-//         <div className="wrapper">
-//           <div className="py-8">
-//             <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//               <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-lg p-8 text-center">
-//                 <div className="mb-6">
-//                   <svg
-//                     xmlns="http://www.w3.org/2000/svg"
-//                     className="h-16 w-16 text-green-500 mx-auto"
-//                     fill="none"
-//                     viewBox="0 0 24 24"
-//                     stroke="currentColor"
-//                   >
-//                     <path
-//                       strokeLinecap="round"
-//                       strokeLinejoin="round"
-//                       strokeWidth={2}
-//                       d="M5 13l4 4L19 7"
-//                     />
-//                   </svg>
-//                 </div>
-//                 <h1 className="text-3xl font-bold text-gray-800 mb-4">
-//                   Order Successful! 🎉
-//                 </h1>
-//                 <div className="bg-gray-50 rounded-lg p-6 text-left mb-6">
-//                   <p className="text-gray-700 mb-2">
-//                     <span className="font-semibold">Name:</span> {customerDetails.name}
-//                   </p>
-//                   <p className="text-gray-700 mb-2">
-//                     <span className="font-semibold">Email:</span> {customerDetails.email}
-//                   </p>
-//                   <p className="text-gray-700">
-//                     <span className="font-semibold">Shipping Address:</span> {customerDetails.address}
-//                   </p>
-//                 </div>
-//                 <p className="text-gray-600">
-//                   Your order details have been saved and will be processed shortly.
-//                 </p>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//         <Footer />
-//       </div>
-//     );
-//   }
-
-//   return (
-//     // ... (keep the existing checkout form UI exactly as you provided)
-//     // The form structure remains the same, only handleCheckout was modified
-//     <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//      <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-//          <Header />
-//        </ClerkProvider>
-//       <div className="wrapper">
-//         <div className="py-8">
-//           <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//             <h1 className="text-2xl font-bold text-[#1F2937] mb-6 text-center">Checkout</h1>
-//             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">               {/* Order Summary */}
-//                <div className="bg-white shadow-lg rounded-lg p-6"> 
-//                  <h2 className="text-xl font-bold text-[#1F2937] mb-4">Order Summary</h2> 
-//                {cartItems.map((item) => (
-//                   <div key={item.id} className="flex items-center justify-between border-b border-gray-200 py-4">
-//                     <div className="flex items-center space-x-4">
-//                       <div className="w-16 h-16 relative">
-//                         <Image src={item.imageUrl} alt={item.name} layout="fill" objectFit="cover" className="rounded-lg" />
-//                       </div>
-//                       <span className="text-base font-medium text-[#1F2937]">{item.name}</span>
-//                     </div>
-//                     <span className="text-base font-medium text-[#1F2937]">${(item.price * item.quantity).toFixed(2)}</span>
-//                   </div>
-//                 ))}
-//                 <div className="flex justify-between mt-6">
-//                   <span className="text-lg font-bold text-[#1F2937]">Total</span>
-//                   <span className="text-lg font-bold text-[#1F2937]">${totalPrice.toFixed(2)}</span>
-//                 </div>
-//               </div>
-
-//               {/* Checkout Form */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">Shipping Details</h2>
-//                 <form onSubmit={handleSubmit(handleCheckout)}>
-//                   <div className="space-y-4">
-//                     <div>
-//                       <label htmlFor="name" className="block text-base font-medium text-[#1F2937] mb-1">Full Name</label>
-//                       <input type="text" id="name" {...register("name")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.name && <p className="text-sm text-red-600 mt-1">{errors.name.message}</p>}
-//                     </div>
-//                     <div>
-//                       <label htmlFor="email" className="block text-base font-medium text-[#1F2937] mb-1">Email Address</label>
-//                       <input type="email" id="email" {...register("email")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.email && <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>}
-//                     </div>
-//                     <div>
-//                       <label htmlFor="address" className="block text-base font-medium text-[#1F2937] mb-1">Shipping Address</label>
-//                       <input type="text" id="address" {...register("address")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.address && <p className="text-sm text-red-600 mt-1">{errors.address.message}</p>}
-//                     </div>
-//                     <div>
-//                       <label htmlFor="phone" className="block text-base font-medium text-[#1F2937] mb-1">Phone Number</label>
-//                       <input type="tel" id="phone" {...register("phone")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.phone && <p className="text-sm text-red-600 mt-1">{errors.phone.message}</p>}
-//                     </div>
-//                   </div>
-//                   <button type="submit" disabled={isLoading} className="w-full mt-6 bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:from-[#1D4ED8] hover:to-[#3B82F6] text-white font-bold py-3 px-6 rounded-lg transition-all ease-in-out transform hover:scale-105 disabled:opacity-75 disabled:cursor-not-allowed">
-//                     {isLoading ? "Loading..." : "Place Order"}
-//                   </button>
-//                 </form>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//       <Footer />
-//     </div>
-//   );
-// }
-
-
-// "use client";
-
-// import React, { useState } from "react";
-// import { useCart } from "@/components/cart-components/CartContext";
-// import Image from "next/image";
-// import { ClerkProvider } from "@clerk/nextjs";
-// import Header from "@/components/productList-components/header";
-// import Footer from "@/components/team-components/footer";
-// import { useForm, SubmitHandler } from "react-hook-form";
-// import { zodResolver } from "@hookform/resolvers/zod";
-// import { z } from "zod";
-
-// const checkoutSchema = z.object({
-//   name: z.string().min(1, "Full name is required"),
-//   email: z.string().email("Invalid email address"),
-//   address: z.string().min(1, "Shipping address is required"),
-//   phone: z.string().min(10, "Phone number must be at least 10 digits"),
-// });
-
-// type CheckoutFormData = z.infer<typeof checkoutSchema>;
-
-// export default function Checkout() {
-//   const { cartItems } = useCart();
-//   const [isLoading, setIsLoading] = useState(false);
-
-//   const totalPrice = cartItems.reduce(
-//     (total, item) => total + item.price * item.quantity,
-//     0
-//   );
-
-//   const {
-//     register,
-//     handleSubmit,
-//     formState: { errors },
-//   } = useForm<CheckoutFormData>({
-//     resolver: zodResolver(checkoutSchema),
-//   });
-
-//   const handleCheckout: SubmitHandler<CheckoutFormData> = async (data) => {
-//     setIsLoading(true);
-//     try {
-//       alert(`Your shipping has been successfully placed!\n\nName: ${data.name}\nEmail: ${data.email}\nAddress: ${data.address}\n\nThank you!`);
-//     } catch (error) {
-//       console.error("Checkout error:", error);
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-
-//   return (
-//     <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//       <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-//         <Header />
-//       </ClerkProvider>
-//       <div className="wrapper">
-//         <div className="py-8">
-//           <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//             <h1 className="text-2xl font-bold text-[#1F2937] mb-6 text-center">Checkout</h1>
-//             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-//               {/* Order Summary */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">Order Summary</h2>
-//                 {cartItems.map((item) => (
-//                   <div key={item.id} className="flex items-center justify-between border-b border-gray-200 py-4">
-//                     <div className="flex items-center space-x-4">
-//                       <div className="w-16 h-16 relative">
-//                         <Image src={item.imageUrl} alt={item.name} layout="fill" objectFit="cover" className="rounded-lg" />
-//                       </div>
-//                       <span className="text-base font-medium text-[#1F2937]">{item.name}</span>
-//                     </div>
-//                     <span className="text-base font-medium text-[#1F2937]">${(item.price * item.quantity).toFixed(2)}</span>
-//                   </div>
-//                 ))}
-//                 <div className="flex justify-between mt-6">
-//                   <span className="text-lg font-bold text-[#1F2937]">Total</span>
-//                   <span className="text-lg font-bold text-[#1F2937]">${totalPrice.toFixed(2)}</span>
-//                 </div>
-//               </div>
-
-//               {/* Checkout Form */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">Shipping Details</h2>
-//                 <form onSubmit={handleSubmit(handleCheckout)}>
-//                   <div className="space-y-4">
-//                     <div>
-//                       <label htmlFor="name" className="block text-base font-medium text-[#1F2937] mb-1">Full Name</label>
-//                       <input type="text" id="name" {...register("name")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.name && <p className="text-sm text-red-600 mt-1">{errors.name.message}</p>}
-//                     </div>
-//                     <div>
-//                       <label htmlFor="email" className="block text-base font-medium text-[#1F2937] mb-1">Email Address</label>
-//                       <input type="email" id="email" {...register("email")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.email && <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>}
-//                     </div>
-//                     <div>
-//                       <label htmlFor="address" className="block text-base font-medium text-[#1F2937] mb-1">Shipping Address</label>
-//                       <input type="text" id="address" {...register("address")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.address && <p className="text-sm text-red-600 mt-1">{errors.address.message}</p>}
-//                     </div>
-//                     <div>
-//                       <label htmlFor="phone" className="block text-base font-medium text-[#1F2937] mb-1">Phone Number</label>
-//                       <input type="tel" id="phone" {...register("phone")} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent text-base" />
-//                       {errors.phone && <p className="text-sm text-red-600 mt-1">{errors.phone.message}</p>}
-//                     </div>
-//                   </div>
-//                   <button type="submit" disabled={isLoading} className="w-full mt-6 bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:from-[#1D4ED8] hover:to-[#3B82F6] text-white font-bold py-3 px-6 rounded-lg transition-all ease-in-out transform hover:scale-105 disabled:opacity-75 disabled:cursor-not-allowed">
-//                     {isLoading ? "Loading..." : "Place Order"}
-//                   </button>
-//                 </form>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//       <Footer />
-//     </div>
-//   );
-// }
-
-
-
-
-
-
-
-// "use client";
-
-// import React, { useState } from "react";
-// import { useCart } from "@/components/cart-components/CartContext";
-// import Image from "next/image";
-// import { ClerkProvider } from "@clerk/nextjs";
-// import Header from "@/components/productList-components/header";
-// import Footer from "@/components/team-components/footer";
-// import { useForm, SubmitHandler } from "react-hook-form";
-// import { zodResolver } from "@hookform/resolvers/zod";
-// import { z } from "zod";
-
-// const checkoutSchema = z.object({
-//   name: z.string().min(1, "Full name is required"),
-//   email: z.string().email("Invalid email address"),
-//   address: z.string().min(1, "Shipping address is required"),
-//   phone: z.string().min(10, "Phone number must be at least 10 digits"),
-// });
-
-// type CheckoutFormData = z.infer<typeof checkoutSchema>;
-
-// export default function Checkout() {
-//   const { cartItems, clearCart } = useCart();
-//   const [isLoading, setIsLoading] = useState(false);
-//   const [orderSuccess, setOrderSuccess] = useState(false);
-//   const [savedCustomerDetails, setSavedCustomerDetails] = useState<{
-//     email: string;
-//     address: string;
-//   } | null>(null);
-
-//   const totalPrice = cartItems.reduce(
-//     (total, item) => total + item.price * item.quantity,
-//     0
-//   );
-
-//   const {
-//     register,
-//     handleSubmit,
-//     formState: { errors },
-//   } = useForm<CheckoutFormData>({
-//     resolver: zodResolver(checkoutSchema),
-//   });
-
-//   const handleCheckout: SubmitHandler<CheckoutFormData> = async (data) => {
-//     setIsLoading(true);
-
-//     try {
-//       // Create the order document in Sanity
-//       const orderPayload = {
-//         customerName: data.name,
-//         customerEmail: data.email,
-//         shippingAddress: data.address,
-//         phone: data.phone,
-//         orderItems: cartItems.map((item) => ({
-//           product: { _type: "reference", _ref: item.id },
-//           name: item.name,
-//           price: item.price,
-//           quantity: item.quantity,
-//         })),
-//         totalPrice,
-//         orderStatus: "pending",
-//         createdAt: new Date().toISOString(),
-//       };
-
-//       const orderResponse = await fetch("/api/createOrder", {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify(orderPayload),
-//       });
-
-//       if (!orderResponse.ok) {
-//         const errorData = await orderResponse.json();
-//         throw new Error(errorData.message || "Failed to create order");
-//       }
-
-//       // Save customer details for success message
-//       setSavedCustomerDetails({
-//         email: data.email,
-//         address: data.address,
-//       });
-//       setOrderSuccess(true);
-//       clearCart();
-//     } catch (error) {
-//       console.error("Checkout error:", error);
-//       alert("There was an error placing your order. Please try again.");
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-
-//   if (orderSuccess && savedCustomerDetails) {
-//     return (
-//       <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//         <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-//           <Header />
-//         </ClerkProvider>
-//         <div className="wrapper">
-//           <div className="py-8">
-//             <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//               <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-lg p-8 text-center">
-//                 <div className="mb-6">
-//                   <svg
-//                     xmlns="http://www.w3.org/2000/svg"
-//                     className="h-16 w-16 text-green-500 mx-auto"
-//                     fill="none"
-//                     viewBox="0 0 24 24"
-//                     stroke="currentColor"
-//                   >
-//                     <path
-//                       strokeLinecap="round"
-//                       strokeLinejoin="round"
-//                       strokeWidth={2}
-//                       d="M5 13l4 4L19 7"
-//                     />
-//                   </svg>
-//                 </div>
-//                 <h1 className="text-3xl font-bold text-gray-800 mb-4">
-//                   Order Successful! 🎉
-//                 </h1>
-//                 <p className="text-lg text-gray-600 mb-6">
-//                   Your order has been successfully shipped to:
-//                 </p>
-//                 <div className="bg-gray-50 rounded-lg p-6 text-left">
-//                   <p className="text-gray-700 mb-2">
-//                     <span className="font-semibold">Address:</span>{" "}
-//                     {savedCustomerDetails.address}
-//                   </p>
-//                   <p className="text-gray-700">
-//                     <span className="font-semibold">Email:</span>{" "}
-//                     {savedCustomerDetails.email}
-//                   </p>
-//                 </div>
-//                 <p className="mt-6 text-gray-600">
-//                   A confirmation email has been sent to your inbox.
-//                 </p>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//         <Footer />
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//       <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-//         <Header />
-//       </ClerkProvider>
-//       <div className="wrapper">
-//         <div className="py-8">
-//           <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//             <h1 className="text-2xl font-bold text-[#1F2937] mb-6 text-center">
-//               Checkout
-//             </h1>
-//             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-//               {/* Order Summary */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Order Summary
-//                 </h2>
-//                 {cartItems.map((item) => (
-//                   <div
-//                     key={item.id}
-//                     className="flex items-center justify-between border-b border-gray-200 py-4"
-//                   >
-//                     <div className="flex items-center space-x-4">
-//                       <div className="w-16 h-16 relative">
-//                         <Image
-//                           src={item.imageUrl}
-//                           alt={item.name}
-//                           fill
-//                           style={{ objectFit: "cover" }}
-//                           className="rounded-lg"
-//                         />
-//                       </div>
-//                       <span className="text-base font-medium text-[#1F2937]">
-//                         {item.name}
-//                       </span>
-//                     </div>
-//                     <span className="text-base font-medium text-[#1F2937]">
-//                       ${(item.price * item.quantity).toFixed(2)}
-//                     </span>
-//                   </div>
-//                 ))}
-//                 <div className="flex justify-between mt-6">
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     Total
-//                   </span>
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     ${totalPrice.toFixed(2)}
-//                   </span>
-//                 </div>
-//               </div>
-
-//               {/* Checkout Form */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Shipping Details
-//                 </h2>
-//                 <form onSubmit={handleSubmit(handleCheckout)} className="space-y-4">
-//                   <div>
-//                     <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-//                       Full Name
-//                     </label>
-//                     <input
-//                       type="text"
-//                       id="name"
-//                       {...register("name")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.name && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>
-//                     )}
-//                   </div>
-//                   <div>
-//                     <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-//                       Email Address
-//                     </label>
-//                     <input
-//                       type="email"
-//                       id="email"
-//                       {...register("email")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.email && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
-//                     )}
-//                   </div>
-//                   <div>
-//                     <label htmlFor="address" className="block text-sm font-medium text-gray-700">
-//                       Shipping Address
-//                     </label>
-//                     <input
-//                       type="text"
-//                       id="address"
-//                       {...register("address")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.address && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.address.message}</p>
-//                     )}
-//                   </div>
-//                   <div>
-//                     <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-//                       Phone Number
-//                     </label>
-//                     <input
-//                       type="tel"
-//                       id="phone"
-//                       {...register("phone")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.phone && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>
-//                     )}
-//                   </div>
-//                   <button
-//                     type="submit"
-//                     disabled={isLoading}
-//                     className="w-full bg-[#23A6F0] hover:bg-blue-400 text-white font-bold py-3 px-6 rounded-lg transition-all ease-in-out"
-//                   >
-//                     {isLoading ? "Processing..." : "Place Order"}
-//                   </button>
-//                 </form>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//       <Footer />
-//     </div>
-//   );
-// }
-
-
-
-
-
-
-
-
-// "use client";
-
-// import React, { useState } from "react";
-// import { useCart } from "@/components/cart-components/CartContext";
-// import Image from "next/image";
-// import { ClerkProvider } from "@clerk/nextjs";
-// import Header from "@/components/productList-components/header";
-// import Footer from "@/components/team-components/footer";
-// import { useForm, SubmitHandler } from "react-hook-form";
-// import { zodResolver } from "@hookform/resolvers/zod";
-// import { z } from "zod";
-
-// const checkoutSchema = z.object({
-//   name: z.string().min(1, "Full name is required"),
-//   email: z.string().email("Invalid email address"),
-//   address: z.string().min(1, "Shipping address is required"),
-//   phone: z.string().min(10, "Phone number must be at least 10 digits"),
-// });
-
-// type CheckoutFormData = z.infer<typeof checkoutSchema>;
-
-// export default function Checkout() {
-//   const { cartItems } = useCart();
-//   const [isLoading, setIsLoading] = useState(false);
-
-//   const totalPrice = cartItems.reduce(
-//     (total, item) => total + item.price * item.quantity,
-//     0
-//   );
-
-//   const {
-//     register,
-//     handleSubmit,
-//     formState: { errors },
-//   } = useForm<CheckoutFormData>({
-//     resolver: zodResolver(checkoutSchema),
-//   });
-
-//   const handleCheckout: SubmitHandler<CheckoutFormData> = async (data) => {
-//     setIsLoading(true);
-
-//     try {
-//       // 1. Update stock for each item in the cart
-//       for (const item of cartItems) {
-//         const stockUpdateResponse = await fetch("/api/updateStock", {
-//           method: "POST",
-//           headers: { "Content-Type": "application/json" },
-//           body: JSON.stringify({ productId: item.id, quantity: item.quantity }),
-//         });
-
-//         if (!stockUpdateResponse.ok) {
-//           const { message } = await stockUpdateResponse.json();
-//           alert(`Failed to update stock for ${item.name}: ${message}`);
-//           setIsLoading(false);
-//           return;
-//         }
-//       }
-
-//       // 2. Send email confirmation
-//       const emailResponse = await fetch("/api/send-email", {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify({
-//           email: data.email,
-//           name: data.name,
-//           cartItems,
-//           totalPrice,
-//         }),
-//       });
-
-//       if (!emailResponse.ok) {
-//         throw new Error("Failed to send email");
-//       }
-
-//       // 3. Create the order document in Sanity
-//       const orderPayload = {
-//         customerName: data.name,
-//         customerEmail: data.email,
-//         shippingAddress: data.address,
-//         phone: data.phone,
-//         orderItems: cartItems.map((item) => ({
-//           product: { _type: "reference", _ref: item.id }, // Assumes item.id matches your Sanity product id
-//           name: item.name,
-//           price: item.price,
-//           quantity: item.quantity,
-//         })),
-//         totalPrice,
-//         orderStatus: "pending",
-//         createdAt: new Date().toISOString(),
-//       };
-
-//       const orderResponse = await fetch("/api/createOrder", {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify(orderPayload),
-//       });
-
-//       if (!orderResponse.ok) {
-//         const errorData = await orderResponse.json();
-//         throw new Error(errorData.message || "Failed to create order in Sanity");
-//       }
-
-//       alert("Order placed successfully!");
-//     } catch (error) {
-//       console.error("Checkout error:", error);
-//       alert("There was an error placing your order. Please try again.");
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-
-//   return (
-//     <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//       <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-//         <Header />
-//       </ClerkProvider>
-//       <div className="wrapper">
-//         <div className="py-8">
-//           <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//             <h1 className="text-2xl font-bold text-[#1F2937] mb-6 text-center">
-//               Checkout
-//             </h1>
-//             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-//               {/* Order Summary */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Order Summary
-//                 </h2>
-//                 {cartItems.map((item) => (
-//                   <div
-//                     key={item.id}
-//                     className="flex items-center justify-between border-b border-gray-200 py-4"
-//                   >
-//                     <div className="flex items-center space-x-4">
-//                       <div className="w-16 h-16 relative">
-//                         <Image
-//                           src={item.imageUrl}
-//                           alt={item.name}
-//                           fill
-//                           style={{ objectFit: "cover" }}
-//                           className="rounded-lg"
-//                         />
-//                       </div>
-//                       <span className="text-base font-medium text-[#1F2937]">
-//                         {item.name}
-//                       </span>
-//                     </div>
-//                     <span className="text-base font-medium text-[#1F2937]">
-//                       ${(item.price * item.quantity).toFixed(2)}
-//                     </span>
-//                   </div>
-//                 ))}
-//                 <div className="flex justify-between mt-6">
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     Total
-//                   </span>
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     ${totalPrice.toFixed(2)}
-//                   </span>
-//                 </div>
-//               </div>
-
-//               {/* Checkout Form */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Shipping Details
-//                 </h2>
-//                 <form onSubmit={handleSubmit(handleCheckout)} className="space-y-4">
-//                   <div>
-//                     <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-//                       Full Name
-//                     </label>
-//                     <input
-//                       type="text"
-//                       id="name"
-//                       {...register("name")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.name && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>
-//                     )}
-//                   </div>
-//                   <div>
-//                     <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-//                       Email Address
-//                     </label>
-//                     <input
-//                       type="email"
-//                       id="email"
-//                       {...register("email")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.email && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
-//                     )}
-//                   </div>
-//                   <div>
-//                     <label htmlFor="address" className="block text-sm font-medium text-gray-700">
-//                       Shipping Address
-//                     </label>
-//                     <input
-//                       type="text"
-//                       id="address"
-//                       {...register("address")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.address && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.address.message}</p>
-//                     )}
-//                   </div>
-//                   <div>
-//                     <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-//                       Phone Number
-//                     </label>
-//                     <input
-//                       type="tel"
-//                       id="phone"
-//                       {...register("phone")}
-//                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-//                     />
-//                     {errors.phone && (
-//                       <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>
-//                     )}
-//                   </div>
-//                   <button
-//                     type="submit"
-//                     disabled={isLoading}
-//                     className="w-full bg-[#23A6F0] hover:bg-blue-400 text-white font-bold py-3 px-6 rounded-lg transition-all ease-in-out"
-//                   >
-//                     {isLoading ? "Loading..." : "Place Order"}
-//                   </button>
-//                 </form>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//       <Footer />
-//     </div>
-//   );
-// }
-
-
-
-
-// "use client";
-
-// import React, { useState } from "react"; // Import useState
-// import { useCart } from "@/components/cart-components/CartContext";
-// import Image from "next/image";
-// import { ClerkProvider } from "@clerk/nextjs";
-// import Header from "@/components/productList-components/header";
-// import Footer from "@/components/team-components/footer";
-// import { useForm, SubmitHandler } from "react-hook-form";
-// import { zodResolver } from "@hookform/resolvers/zod";
-// import { z } from "zod";
-
-// const checkoutSchema = z.object({
-//   name: z.string().min(1, "Full name is required"),
-//   email: z.string().email("Invalid email address"),
-//   address: z.string().min(1, "Shipping address is required"),
-//   phone: z.string().min(10, "Phone number must be at least 10 digits"),
-// });
-
-// type CheckoutFormData = z.infer<typeof checkoutSchema>;
-
-// export default function Checkout() {
-//   const { cartItems } = useCart();
-//   const [isLoading, setIsLoading] = useState(false); // Loading state
-
-//   const totalPrice = cartItems.reduce(
-//     (total, item) => total + item.price * item.quantity,
-//     0
-//   );
-
-//   const {
-//     register,
-//     handleSubmit,
-//     formState: { errors },
-//   } = useForm<CheckoutFormData>({
-//     resolver: zodResolver(checkoutSchema),
-//   });
-
-//   const handleCheckout: SubmitHandler<CheckoutFormData> = async (data) => {
-//     setIsLoading(true); // Start loading
-
-//     try {
-//       // Update stock for each item in the cart
-//       for (const item of cartItems) {
-//         const stockUpdateResponse = await fetch("/api/updateStock", {
-//           method: "POST",
-//           headers: { "Content-Type": "application/json" },
-//           body: JSON.stringify({ productId: item.id, quantity: item.quantity }),
-//         });
-
-//         if (!stockUpdateResponse.ok) {
-//           const { message } = await stockUpdateResponse.json();
-//           alert(`Failed to update stock for ${item.name}: ${message}`);
-//           setIsLoading(false);
-//           return;
-//         }
-//       }
-
-//       // Send email confirmation
-//       const emailResponse = await fetch("/api/send-email", {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify({
-//           email: data.email,
-//           name: data.name,
-//           cartItems,
-//           totalPrice,
-//         }),
-//       });
-
-//       if (!emailResponse.ok) {
-//         throw new Error("Failed to send email");
-//       }
-
-//       alert("Order placed successfully!");
-//     } catch (error) {
-//       console.error("Checkout error:", error);
-//     } finally {
-//       setIsLoading(false); // Stop loading
-//     }
-//   };
-
-//   return (
-//     <div className="bg-gradient-to-br from-[#F9FAFB] to-[#EFF6FF] min-h-screen">
-//       <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-//         <Header />
-//       </ClerkProvider>
-//       <div className="wrapper">
-//         <div className="py-8">
-//           <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-//             <h1 className="text-2xl font-bold text-[#1F2937] mb-6 text-center">
-//               Checkout
-//             </h1>
-//             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-//               {/* Order Summary */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Order Summary
-//                 </h2>
-//                 {cartItems.map((item) => (
-//                   <div
-//                     key={item.id}
-//                     className="flex items-center justify-between border-b border-gray-200 py-4"
-//                   >
-//                     <div className="flex items-center space-x-4">
-//                       <div className="w-16 h-16 relative">
-//                         <Image
-//                           src={item.imageUrl}
-//                           alt={item.name}
-//                           layout="fill"
-//                           objectFit="cover"
-//                           className="rounded-lg"
-//                         />
-//                       </div>
-//                       <span className="text-base font-medium text-[#1F2937]">
-//                         {item.name}
-//                       </span>
-//                     </div>
-//                     <span className="text-base font-medium text-[#1F2937]">
-//                       ${(item.price * item.quantity).toFixed(2)}
-//                     </span>
-//                   </div>
-//                 ))}
-//                 <div className="flex justify-between mt-6">
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     Total
-//                   </span>
-//                   <span className="text-lg font-bold text-[#1F2937]">
-//                     ${totalPrice.toFixed(2)}
-//                   </span>
-//                 </div>
-//               </div>
-
-//               {/* Checkout Form */}
-//               <div className="bg-white shadow-lg rounded-lg p-6">
-//                 <h2 className="text-xl font-bold text-[#1F2937] mb-4">
-//                   Shipping Details
-//                 </h2>
-//                 <form onSubmit={handleSubmit(handleCheckout)}>
-//                   <div className="space-y-4">
-//                     <input type="text" id="name" {...register("name")} />
-//                     <input type="email" id="email" {...register("email")} />
-//                     <input type="text" id="address" {...register("address")} />
-//                     <input type="tel" id="phone" {...register("phone")} />
-//                   </div>
-//                   <button type="submit" disabled={isLoading}>
-//                     {isLoading ? "Loading..." : "Place Order"}
-//                   </button>
-//                 </form>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//       <Footer />
-//     </div>
-//   );
-// }
+export default CheckoutPage;
